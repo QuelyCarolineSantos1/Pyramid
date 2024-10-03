@@ -1,0 +1,83 @@
+import logging
+from wsgiref.simple_server import make_server
+from pyramid.config import Configurator
+from pyramid.response import Response
+from pyramid.view import view_config
+from pyramid.httpexceptions import HTTPFound
+from pyramid.request import Request
+from pyramid.session import SignedCookieSessionFactory
+
+# Configurações do logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Dicionário de usuários fictícios para autenticação
+USUARIOS = {
+    "usuario1": "password1",
+    "usuario2": "password2",
+}
+
+@view_config(route_name='home', renderer='string')
+def home_view(request: Request):
+    """View para a página inicial. Retorna o nome de usuário da sessão."""
+    username = request.session.get('username')
+    logger.info("Acessando a página inicial.")
+    if username:
+        return f'Bem-vindo, {username}!'
+    return 'Você não está logado. <a href="/login">Faça login</a>.'
+
+@view_config(route_name='login', renderer='string', request_method='GET')
+def login_view(request: Request):
+    """View para exibir o formulário de login."""
+    logger.info("Acessando a página de login.")
+    return '''
+    <form method="POST">
+        <label for="username">Usuário:</label>
+        <input type="text" id="username" name="username" required>
+        <br>
+        <label for="password">Senha:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <input type="submit" value="Entrar">
+    </form>
+    '''
+
+@view_config(route_name='login', request_method='POST')
+def login_submit(request: Request):
+    """View para processar o login quando o formulário é enviado."""
+    logger.info("Tentativa de login.")
+    username = request.POST.get('username')
+    password = request.POST.get('password')
+
+    if username in USUARIOS and USUARIOS[username] == password:
+        request.session['username'] = username
+        logger.info(f"Usuário {username} logado com sucesso.")
+        return HTTPFound(location=request.route_url('home'))
+
+    logger.warning(f"Tentativa de login falhada para o usuário: {username}")
+    return Response('Usuário ou Senha Inválidos', status=401)
+
+def main(global_config, **settings):
+    """Função principal para configurar e iniciar a aplicação Pyramid."""
+    config = Configurator(settings=settings)
+
+    # Define uma fábrica de sessão usando cookies assinados
+    session_factory = SignedCookieSessionFactory('itsaseekreet')
+    config.set_session_factory(session_factory)
+
+    # Configura rotas
+    config.add_route('home', '/')  # Rota para a página inicial
+    config.add_route('login', '/login')  # Rota para a página de login
+
+    # Adiciona as views
+    config.add_view(home_view, route_name='home')
+    config.add_view(login_view, route_name='login', request_method='GET')
+    config.add_view(login_submit, route_name='login', request_method='POST')
+
+    return config.make_wsgi_app()
+
+if __name__ == '__main__':
+    app = main({})  # Cria a aplicação a partir da função main
+    server = make_server('0.0.0.0', 8080, app)  # Cria o servidor na porta 8080
+    print("Server is running on http://localhost:8080")
+    server.serve_forever()  # Mantém o servidor rodando até ser interrompido
